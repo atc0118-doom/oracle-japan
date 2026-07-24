@@ -26,12 +26,23 @@ const FETCH_TIMEOUT_MS = 6500;
 
 const NHK_RSS_URL = 'https://news.web.nhk/n-data/conf/na/rss/cat0.xml';
 
-// Broad query covering all four news-driven categories at once (same
-// pattern as ORACLE's single fetchGoogleNews query) — categorization
-// happens downstream via CATEGORY_KEYWORDS, not via separate per-category
-// feeds.
-const GOOGLE_NEWS_JP_QUERY = encodeURIComponent('(北朝鮮 OR ミサイル OR 弾道ミサイル OR 領海侵入 OR 領空侵犯 OR 台湾有事 OR 尖閣 OR スクランブル発進 OR 感染症 OR インフルエンザ OR 鳥インフルエンザ OR パンデミック OR 感染拡大 OR ノロウイルス OR 停電 OR 断水 OR 運休 OR システム障害 OR 通信障害 OR 大規模障害 OR 欠航 OR テロ OR 立てこもり OR 大規模火災 OR 殺傷 OR 爆発 OR 銃撃 OR 死亡事故 OR 殺人 OR 強盗 OR 放火 OR 轢き逃げ OR 容疑者逮捕)');
+// Broad query covering Security/Health/Infrastructure at once (same pattern
+// as ORACLE's single fetchGoogleNews query) — categorization happens
+// downstream via CATEGORY_KEYWORDS, not via separate per-category feeds.
+// PublicSafety is DELIBERATELY excluded from this combined query and given
+// its own dedicated fetch below — see PUBLIC_SAFETY_QUERY.
+const GOOGLE_NEWS_JP_QUERY = encodeURIComponent('(北朝鮮 OR ミサイル OR 弾道ミサイル OR 領海侵入 OR 領空侵犯 OR 台湾有事 OR 尖閣 OR スクランブル発進 OR 感染症 OR インフルエンザ OR 鳥インフルエンザ OR パンデミック OR 感染拡大 OR ノロウイルス OR 停電 OR 断水 OR 運休 OR システム障害 OR 通信障害 OR 大規模障害 OR 欠航)');
 const GOOGLE_NEWS_JP_URL = `https://news.google.com/rss/search?q=${GOOGLE_NEWS_JP_QUERY}&hl=ja&gl=JP&ceid=JP:ja`;
+
+// FIX (signal starvation): when the combined query above has a dominant,
+// heavily-reported story (e.g. a citywide water outage generating 5-6
+// differently-worded headlines), Google News' relevance ranking can fill
+// most or all of the ~25-result window with that one topic, leaving no
+// room for PublicSafety terms to surface even when real matches exist. A
+// separate, dedicated query for PublicSafety alone guarantees it gets its
+// own ~25-result window that nothing else can crowd out.
+const PUBLIC_SAFETY_QUERY = encodeURIComponent('(テロ OR 立てこもり OR 大規模火災 OR 殺傷 OR 爆発 OR 銃撃 OR 死亡事故 OR 殺人 OR 強盗 OR 放火 OR 轢き逃げ OR 容疑者逮捕)');
+const PUBLIC_SAFETY_URL = `https://news.google.com/rss/search?q=${PUBLIC_SAFETY_QUERY}&hl=ja&gl=JP&ceid=JP:ja`;
 
 const JMA_AREA_JSON_URL = 'https://www.jma.go.jp/bosai/common/const/area.json';
 const JMA_WARNING_BASE = 'https://www.jma.go.jp/bosai/warning/data/warning/';
@@ -184,7 +195,7 @@ async function fetchWithTimeout(url, options = {}) {
 // ---------------------------------------------------------------------------
 
 async function fetchAllNews() {
-  const collectors = [['NHK', fetchNHKNews], ['Google News (Japan)', fetchGoogleNewsJP]];
+  const collectors = [['NHK', fetchNHKNews], ['Google News (Japan)', fetchGoogleNewsJP], ['Google News (PublicSafety)', fetchGoogleNewsJP_PublicSafety]];
   const settled = await Promise.allSettled(collectors.map(async ([name, fn]) => {
     const items = await fn();
     return { name, ok: true, count: items.length, items };
@@ -209,6 +220,12 @@ async function fetchNHKNews() {
 async function fetchGoogleNewsJP() {
   const r = await fetchWithTimeout(GOOGLE_NEWS_JP_URL, { headers: { 'user-agent': 'OracleJapan/1.0' } });
   if (!r.ok) throw new Error('google_news_jp ' + r.status);
+  return parseRss(await r.text(), 'Google News');
+}
+
+async function fetchGoogleNewsJP_PublicSafety() {
+  const r = await fetchWithTimeout(PUBLIC_SAFETY_URL, { headers: { 'user-agent': 'OracleJapan/1.0' } });
+  if (!r.ok) throw new Error('google_news_jp_publicsafety ' + r.status);
   return parseRss(await r.text(), 'Google News');
 }
 
