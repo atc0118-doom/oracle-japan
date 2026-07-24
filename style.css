@@ -68,27 +68,6 @@ main{ max-width:980px; margin:0 auto; padding:0 clamp(16px,4vw,48px) 60px; }
   display:flex; flex-direction:column; align-items:center; text-align:center;
   padding:36px 0 24px;
 }
-.tower-col{ display:flex; flex-direction:column; gap:8px; width:100%; max-width:520px; margin-bottom:28px; }
-.level-tower{
-  position:relative; display:flex; flex-direction:row; gap:4px;
-  height:64px;
-}
-.level-cell{
-  flex:1; border-radius:6px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
-  gap:2px; padding:6px 4px 4px; font-family:var(--mono); font-size:11px; color:rgba(0,0,0,0.55);
-  position:relative; opacity:0.35; transition:opacity .3s;
-}
-.level-cell span{ font-family:var(--sans); font-weight:900; font-size:16px; color:var(--ink,#1b1a17); }
-.tower-caption{ font-size:10px; color:var(--muted); line-height:1.4; text-align:center; margin:0; }
-.level-cell em{ font-style:normal; font-size:10px; color:rgba(0,0,0,0.6); font-family:var(--sans); word-break:keep-all; overflow-wrap:normal; line-height:1.3; }
-.level-cell[data-level="1"]{ background:var(--lv1); }
-.level-cell[data-level="2"]{ background:var(--lv2); }
-.level-cell[data-level="3"]{ background:var(--lv3); }
-.level-cell[data-level="4"]{ background:var(--lv4); color:#fff; }
-.level-cell[data-level="5"]{ background:var(--lv5); color:#fff; }
-.level-cell[data-level="4"] span, .level-cell[data-level="5"] span{ color:#fff; }
-.level-cell[data-level="4"] em, .level-cell[data-level="5"] em{ color:rgba(255,255,255,0.85); }
-.level-cell.active{ opacity:1; box-shadow:0 0 0 2px rgba(255,255,255,0.85), 0 0 18px rgba(255,255,255,0.3); }
 .hero-center{ display:flex; flex-direction:column; align-items:center; }
 
 /* Copied directly from ORACLE (world risk intelligence)'s .label/.score/.state
@@ -166,17 +145,6 @@ main{ max-width:980px; margin:0 auto; padding:0 clamp(16px,4vw,48px) 60px; }
 .footer-note{ font-size:11px; color:var(--muted); }
 
 @media (max-width:640px){
-  /* FIX (jagged numbers): centering the whole column vertically meant a
-     2-line label (緊急安全確保, 高齢者等避難) pushed its number upward while a
-     1-line label (注意, 心構え) left its number lower — the row of "5 4 3 2 1"
-     numbers didn't line up. Anchoring to flex-start with a fixed top gap
-     keeps every number at the same height regardless of how many lines its
-     label wraps to. */
-  .level-cell{ padding:6px 4px 4px; }
   .hero-score-value{ font-size:clamp(126px,46vw,172px); }
   .hero-score-state{ font-size:21px; letter-spacing:.19em; }
-}
-
-@media (prefers-reduced-motion: reduce){
-  .level-cell{ transition:none; }
 }

@@ -43,14 +43,6 @@ function severityFromWarnings(names) {
   return 1; // 注意報 only
 }
 
-function levelFromScore(score) {
-  if (score >= 70) return 5;
-  if (score >= 50) return 4;
-  if (score >= 30) return 3;
-  if (score >= 15) return 2;
-  return 1;
-}
-
 function fmtTime(iso) {
   if (!iso) return '';
   try {
@@ -78,11 +70,6 @@ function render(data) {
   document.getElementById('scoreValue').textContent = score;
   document.getElementById('scoreState').textContent = data.state || '—';
   document.getElementById('topDriver').textContent = DRIVER_LABELS[data.topDriver] || data.topDriver || '—';
-
-  const lvl = levelFromScore(data.drivers?.Disaster ?? 0);
-  document.querySelectorAll('.level-cell').forEach(cell => {
-    cell.classList.toggle('active', Number(cell.dataset.level) === lvl);
-  });
 
   renderDrivers(data.drivers || {}, data.weights || {});
   renderWarnings(data.disasterDetail);
