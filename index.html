@@ -14,31 +14,27 @@
 <body>
   <div class="scanline"></div>
 
+  <main class="shell">
   <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark">ORACLE<span class="brand-sub">JAPAN</span></span>
-      <span class="brand-tagline">国内生活リスク・モニター(実験ツール)</span>
+    <div>
+      <div class="brand">ORACLE <span class="brand-sub">JAPAN</span></div>
+      <div class="tagline">国内生活リスク・モニター(実験ツール)</div>
     </div>
-    <div class="status-cluster">
-      <span id="dataStatus" class="pill">— LOADING —</span>
-      <span id="updatedAt" class="updated-at"></span>
-    </div>
+    <div class="live" id="liveBadge"><span></span><em id="dataStatus">LIVE</em></div>
   </header>
 
-  <main>
     <section class="hero" id="heroSection">
       <div class="hero-center">
         <div class="hero-score-label">総合指数 INDEX</div>
         <div class="hero-score-value" id="scoreValue">—</div>
         <div class="hero-score-state" id="scoreState">—</div>
         <div class="hero-score-driver">最大要因: <span id="topDriver">—</span></div>
+        <div class="hero-updated" id="updatedAt">UPDATED — WAITING</div>
       </div>
       <p class="disclaimer">
         この指数はJMA公式警報・地震情報とニュースのキーワード頻度から機械的に算出した実験値です。
         公式の避難情報・警報ではありません。実際の防災行動は必ず気象庁・自治体の発表に従ってください。
       </p>
-
-
     </section>
 
     <section class="drivers" id="driversSection">

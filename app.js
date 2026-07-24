@@ -61,10 +61,12 @@ async function load() {
 }
 
 function render(data) {
+  const liveBadge = document.getElementById('liveBadge');
   const statusEl = document.getElementById('dataStatus');
-  statusEl.textContent = data.dataStatus || '—';
-  statusEl.className = 'pill ' + (data.isBaseline ? (data.mode === 'fallback' ? 'fallback' : 'baseline') : 'live');
-  document.getElementById('updatedAt').textContent = data.updatedAt ? `更新: ${fmtTime(data.updatedAt)}` : '';
+  const badgeClass = data.isBaseline ? (data.mode === 'fallback' ? 'fallback' : 'baseline') : '';
+  liveBadge.className = 'live' + (badgeClass ? ' ' + badgeClass : '');
+  statusEl.textContent = data.isBaseline ? (data.mode === 'fallback' ? 'FALLBACK' : 'BASELINE') : 'LIVE';
+  document.getElementById('updatedAt').textContent = data.updatedAt ? `UPDATED — ${fmtTime(data.updatedAt)}` : 'UPDATED — WAITING';
 
   const score = data.score ?? 0;
   document.getElementById('scoreValue').textContent = score;
