@@ -30,7 +30,7 @@ const NHK_RSS_URL = 'https://news.web.nhk/n-data/conf/na/rss/cat0.xml';
 // pattern as ORACLE's single fetchGoogleNews query) — categorization
 // happens downstream via CATEGORY_KEYWORDS, not via separate per-category
 // feeds.
-const GOOGLE_NEWS_JP_QUERY = encodeURIComponent('(北朝鮮 OR ミサイル OR 中国 軍 OR 領海侵入 OR 台湾 有事 OR 自衛隊 OR 感染症 OR インフルエンザ OR 鳥インフルエンザ OR パンデミック OR 停電 OR 断水 OR 運休 OR システム障害 OR 通信障害 OR テロ OR 立てこもり OR 大規模火災 OR 事件 OR 事故)');
+const GOOGLE_NEWS_JP_QUERY = encodeURIComponent('(北朝鮮 OR ミサイル OR 弾道ミサイル OR 領海侵入 OR 領空侵犯 OR 台湾有事 OR 尖閣 OR スクランブル発進 OR 感染症 OR インフルエンザ OR 鳥インフルエンザ OR パンデミック OR 感染拡大 OR ノロウイルス OR 停電 OR 断水 OR 運休 OR システム障害 OR 通信障害 OR 大規模障害 OR 欠航 OR テロ OR 立てこもり OR 大規模火災 OR 殺傷 OR 爆発 OR 銃撃)');
 const GOOGLE_NEWS_JP_URL = `https://news.google.com/rss/search?q=${GOOGLE_NEWS_JP_QUERY}&hl=ja&gl=JP&ceid=JP:ja`;
 
 const JMA_AREA_JSON_URL = 'https://www.jma.go.jp/bosai/common/const/area.json';
@@ -43,8 +43,18 @@ const JMA_EQVOL_FEED_URL = 'https://www.data.jma.go.jp/developer/xml/feed/eqvol.
 // substring inclusion rather than ORACLE's word-boundary regex approach.
 // ---------------------------------------------------------------------------
 const CATEGORY_KEYWORDS = {
-  Security: ['北朝鮮', 'ミサイル', '弾道', '中国軍', '領海侵入', '領空侵犯', '台湾有事', '自衛隊', '尖閣', 'スクランブル', '軍事'],
-  Health: ['感染症', 'インフルエンザ', '鳥インフルエンザ', 'パンデミック', '流行', 'ノロウイルス', '麻疹', '厚労省 警戒'],
+  // FIX (over-triggering): '軍事' and bare '自衛隊' were too generic — they
+  // matched routine defense-budget/training/ceremony coverage with no actual
+  // crisis signal, which was saturating this category's score to 100 even
+  // on quiet news days. Kept only terms that describe an actual incident or
+  // escalation (a missile launch, an airspace/territorial-water incursion,
+  // a scramble, explicit Taiwan-contingency framing) rather than routine
+  // defense-affairs reporting.
+  Security: ['北朝鮮', 'ミサイル', '弾道ミサイル', '領海侵入', '領空侵犯', '台湾有事', '尖閣', 'スクランブル発進', '中国軍 艦艇'],
+  // FIX (over-triggering): bare '流行' also matches unrelated "trend/fashion"
+  // usage ("〜が流行" is common in lifestyle/entertainment headlines with zero
+  // disease connection), so it's removed in favor of more specific compounds.
+  Health: ['感染症', 'インフルエンザ', '鳥インフルエンザ', 'パンデミック', '感染拡大', 'ノロウイルス', '麻疹', '厚労省 警戒'],
   Infrastructure: ['停電', '断水', '運休', 'システム障害', '通信障害', '大規模障害', '欠航'],
   PublicSafety: ['テロ', '立てこもり', '大規模火災', '殺傷', '爆発', '銃撃']
 };
