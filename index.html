@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ORACLE JAPAN — 国内生活リスク指数</title>
+<meta name="description" content="JMA公式警報・地震情報と報道キーワードから算出する、日本国内の生活リスク指数(実験ツール)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Shippori+Mincho:wght@600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="scanline"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">ORACLE<span class="brand-sub">JAPAN</span></span>
+      <span class="brand-tagline">国内生活リスク・モニター(実験ツール)</span>
+    </div>
+    <div class="status-cluster">
+      <span id="dataStatus" class="pill">— LOADING —</span>
+      <span id="updatedAt" class="updated-at"></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="heroSection">
+      <div class="level-tower" id="levelTower" aria-label="警戒レベル">
+        <div class="level-cell" data-level="5"><span>5</span><em>緊急安全確保</em></div>
+        <div class="level-cell" data-level="4"><span>4</span><em>避難指示</em></div>
+        <div class="level-cell" data-level="3"><span>3</span><em>高齢者等避難</em></div>
+        <div class="level-cell" data-level="2"><span>2</span><em>注意</em></div>
+        <div class="level-cell" data-level="1"><span>1</span><em>心構え</em></div>
+        <div class="level-marker" id="levelMarker"></div>
+      </div>
+      <div class="hero-score">
+        <div class="hero-score-label">総合指数 INDEX</div>
+        <div class="hero-score-value" id="scoreValue">—</div>
+        <div class="hero-score-state" id="scoreState">—</div>
+        <div class="hero-score-driver">最大要因: <span id="topDriver">—</span></div>
+      </div>
+      <p class="disclaimer">
+        この指数はJMA公式警報・地震情報とニュースのキーワード頻度から機械的に算出した実験値です。
+        公式の避難情報・警報ではありません。実際の防災行動は必ず気象庁・自治体の発表に従ってください。
+      </p>
+    </section>
+
+    <section class="drivers" id="driversSection">
+      <h2 class="section-title">内訳 — WHY SCORE?</h2>
+      <div class="driver-grid" id="driverGrid"></div>
+    </section>
+
+    <section class="disaster-detail" id="disasterDetailSection">
+      <h2 class="section-title">気象庁 公式警報 — 都道府県別</h2>
+      <div id="warningList" class="warning-list"></div>
+      <h3 class="subsection-title">地震・火山情報</h3>
+      <div id="quakeList" class="quake-list"></div>
+    </section>
+
+    <section class="evidence" id="evidenceSection">
+      <h2 class="section-title">根拠記事 — CATEGORY EVIDENCE</h2>
+      <div id="evidenceGrid" class="evidence-grid"></div>
+    </section>
+
+    <footer class="footer">
+      <p id="sourceError" class="source-error"></p>
+      <p class="footer-note">Data: NHK NEWS WEB / Google News Japan / 気象庁(JMA) 警報・地震火山情報。10分キャッシュ。</p>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
