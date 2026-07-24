@@ -163,8 +163,14 @@ main{ max-width:980px; margin:0 auto; padding:0 clamp(16px,4vw,48px) 60px; }
 
 @media (max-width:640px){
   .hero{ grid-template-columns:1fr; }
-  .level-tower{ flex-direction:row; height:56px; }
-  .level-cell{ flex-direction:column; justify-content:center; gap:2px; padding:4px; }
+  .level-tower{ flex-direction:row; height:64px; align-items:stretch; }
+  /* FIX (jagged numbers): centering the whole column vertically meant a
+     2-line label (緊急安全確保, 高齢者等避難) pushed its number upward while a
+     1-line label (注意, 心構え) left its number lower — the row of "5 4 3 2 1"
+     numbers didn't line up. Anchoring to flex-start with a fixed top gap
+     keeps every number at the same height regardless of how many lines its
+     label wraps to. */
+  .level-cell{ flex-direction:column; justify-content:flex-start; align-items:center; gap:2px; padding:6px 4px 4px; }
 }
 
 @media (prefers-reduced-motion: reduce){
