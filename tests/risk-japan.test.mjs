@@ -4,7 +4,7 @@ import {
   disasterScore, newsCategoryScore, stateFromScore,
   dedupeByTitleStem, titleStem, extractActiveWarnings,
   groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount,
-  isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory
+  isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory, parseRss
 } from '../api/risk-japan.js';
 
 test('disasterScore weights 特別警報 much higher than 注意報', () => {
@@ -122,6 +122,13 @@ test('scoreHealthCategory rejects routine surveillance/market-report headlines w
   const { count, hits } = scoreHealthCategory(articles);
   assert.equal(count, 1);
   assert.equal(hits[0].title, '県内でインフルエンザが急増、学級閉鎖相次ぐ');
+});
+
+test('parseRss strips a trailing "(outlet 日本語版)" suffix so it cannot leak a false Japan-relevance signal', () => {
+  const xml = `<item><title>北朝鮮非武装地帯で地雷爆発…韓国合同参謀本部「豪雨で流失の地雷に注意」（中央日報日本語版）</title><link>https://a/1</link></item>`;
+  const [item] = parseRss(xml, 'Test');
+  assert.equal(item.title.includes('日本語版'), false);
+  assert.equal(isForeignOnlyStory(item.title), true);
 });
 
 test('scoreNewsCategory with domesticOnly excludes a foreign-only story leaking via a generic keyword', () => {
