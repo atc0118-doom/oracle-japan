@@ -43,14 +43,19 @@ const JMA_EQVOL_FEED_URL = 'https://www.data.jma.go.jp/developer/xml/feed/eqvol.
 // substring inclusion rather than ORACLE's word-boundary regex approach.
 // ---------------------------------------------------------------------------
 const CATEGORY_KEYWORDS = {
-  // FIX (over-triggering): '軍事' and bare '自衛隊' were too generic — they
-  // matched routine defense-budget/training/ceremony coverage with no actual
-  // crisis signal, which was saturating this category's score to 100 even
-  // on quiet news days. Kept only terms that describe an actual incident or
-  // escalation (a missile launch, an airspace/territorial-water incursion,
-  // a scramble, explicit Taiwan-contingency framing) rather than routine
-  // defense-affairs reporting.
-  Security: ['北朝鮮', 'ミサイル', '弾道ミサイル', '領海侵入', '領空侵犯', '台湾有事', '尖閣', 'スクランブル発進', '中国軍 艦艇'],
+  // FIX (over-triggering, round 3): a bare actor word like '北朝鮮' matched
+  // completely unrelated stories about North Korea (a dog-meat cooking
+  // contest was one real observed case), and a bare action word like
+  // 'ミサイル' matched missile stories anywhere in the world with zero
+  // connection to Japan's own security theater (an Iraq/Kuwait strike was
+  // another real observed case). Same fix pattern as Health below: require
+  // an ACTOR term (a state/flashpoint relevant to Japan's security) AND a
+  // separate ACTION/THREAT term (an actual incident, not just the country
+  // being mentioned) in the same headline.
+  Security: {
+    actors: ['北朝鮮', '中国', '尖閣', '台湾', 'ロシア軍'],
+    actions: ['ミサイル', '弾道', '領海侵入', '領空侵犯', 'スクランブル', '侵入', '地雷', '軍艦', '実戦訓練', '有事', '演習']
+  },
   // FIX (over-triggering, round 2): bare '感染症' matched routine weekly
   // surveillance bulletins ("感染症の流行状況 第29週"), market-research reports
   // ("外用感染症用軟膏の世界市場"), and vaccine-research-center announcements —
@@ -65,6 +70,7 @@ const CATEGORY_KEYWORDS = {
   Infrastructure: ['停電', '断水', '運休', 'システム障害', '通信障害', '大規模障害', '欠航'],
   PublicSafety: ['テロ', '立てこもり', '大規模火災', '殺傷', '爆発', '銃撃']
 };
+
 
 // Disaster and the four news categories are combined with these weights.
 // Disaster carries the largest single weight on purpose: for a *domestic
@@ -262,6 +268,15 @@ function isForeignOnlyStory(title) {
   if (!hasForeignSignal) return false;
   const hasJapanRelevance = JAPAN_RELEVANCE_TERMS.some(term => t.includes(term));
   return !hasJapanRelevance;
+}
+
+function scoreSecurityCategory(articles) {
+  const { actors, actions } = CATEGORY_KEYWORDS.Security;
+  const hits = articles.filter(a =>
+    actors.some(x => a.title.includes(x)) &&
+    actions.some(x => a.title.includes(x))
+  );
+  return { count: hits.length, hits: hits.slice(0, 6) };
 }
 
 function scoreHealthCategory(articles) {
@@ -479,7 +494,7 @@ async function buildPayload() {
           specialCount: warningsData.specialCount, warningCount: warningsData.warningCount,
           advisoryCount: warningsData.advisoryCount, quakeSignificant: significantQuakeCount(quakes)
         }),
-        Security: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.Security).count),
+        Security: newsCategoryScore(scoreSecurityCategory(news).count),
         Health: newsCategoryScore(scoreHealthCategory(news).count),
         Infrastructure: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.Infrastructure, { domesticOnly: true }).count),
         PublicSafety: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.PublicSafety, { domesticOnly: true }).count)
@@ -490,7 +505,7 @@ async function buildPayload() {
   const topDriver = Object.entries(driverScores).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Disaster';
 
   const categoryEvidence = {
-    Security: isBaseline ? [] : scoreNewsCategory(news, CATEGORY_KEYWORDS.Security).hits.map(a => ({ title: a.title, source: a.source, url: a.url })),
+    Security: isBaseline ? [] : scoreSecurityCategory(news).hits.map(a => ({ title: a.title, source: a.source, url: a.url })),
     Health: isBaseline ? [] : scoreHealthCategory(news).hits.map(a => ({ title: a.title, source: a.source, url: a.url })),
     Infrastructure: isBaseline ? [] : scoreNewsCategory(news, CATEGORY_KEYWORDS.Infrastructure, { domesticOnly: true }).hits.map(a => ({ title: a.title, source: a.source, url: a.url })),
     PublicSafety: isBaseline ? [] : scoreNewsCategory(news, CATEGORY_KEYWORDS.PublicSafety, { domesticOnly: true }).hits.map(a => ({ title: a.title, source: a.source, url: a.url }))
@@ -538,4 +553,4 @@ function fallbackPayload(error) {
   };
 }
 
-export { dedupeByTitleStem, titleStem, extractActiveWarnings, groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount, disasterScore, newsCategoryScore, stateFromScore, parseRss, clean, decodeXml, isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory };
+export { dedupeByTitleStem, titleStem, extractActiveWarnings, groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount, disasterScore, newsCategoryScore, stateFromScore, parseRss, clean, decodeXml, isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory, scoreSecurityCategory };
