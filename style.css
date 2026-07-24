@@ -117,6 +117,16 @@ main{ max-width:980px; margin:0 auto; padding:0 clamp(16px,4vw,48px) 60px; }
 .driver-card .bar i{ display:block; height:100%; background:var(--red); }
 .driver-card .weight{ font-size:11px; color:var(--muted); margin-top:6px; font-family:var(--mono); }
 
+.warning-map{ max-width:360px; margin:0 auto 4px; }
+.warning-map svg g:hover rect{ stroke:rgba(255,255,255,0.6); stroke-width:1.5; }
+.map-legend{ display:flex; justify-content:center; gap:16px; flex-wrap:wrap; font-size:11px; color:var(--muted); margin:6px 0 20px; }
+.map-legend span{ display:inline-flex; align-items:center; gap:5px; }
+.sw{ width:10px; height:10px; border-radius:3px; display:inline-block; }
+.sw-none{ background:var(--line); }
+.sw-advisory{ background:var(--lv2); }
+.sw-warning{ background:var(--lv4); }
+.sw-special{ background:var(--lv5); }
+
 .warning-list{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
 .warning-chip{
   font-size:12px; padding:6px 10px; border-radius:6px; background:var(--panel);
