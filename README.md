@@ -121,6 +121,15 @@ ORACLE(世界リスクインテリジェンス)の日本国内特化版。JAPAN 
   要素として撤去する判断。`app.js`の`levelFromScore`関連コードとタワーのHTML/CSSを削除。地図の
   JMA配色(注意報=黄・警報=赤・特別警報=紫)はそのまま維持。
 
+- **v0.2.1**: 「タイトル・数字のフォントが本家とかなり違う」という指摘の根本原因が判明。ORACLE本体
+  のCSSは`font-family:Inter,...`と書いているだけで、実際にはInterをwebfontとして読み込んでいない
+  (index.htmlにGoogle Fonts等のlinkタグが一切ない)。つまり本家の見た目は実際には端末のシステム
+  フォント(Android実機ならRoboto)へのフォールバック結果であって、Interそのものではなかった。
+  こちらは律儀にGoogle FontsからInterを読み込んでいたため、本当にInterが表示されて本家と食い違って
+  いた。Interのwebfont読み込みを削除し、`--sans`のフォントスタックをシステムフォント優先(Zen Kaku
+  Gothic Newは日本語グリフ用に後段へ)に並べ替えて、Latin文字が本家と同じくシステムフォントで解決
+  されるよう修正。
+
 ## 未検証・今後の課題
 
 - このサンドボックスはネットワークアクセスがないため、JMA/NHK/Google Newsへの実際の疎通確認は

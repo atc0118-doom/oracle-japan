@@ -1,11 +1,14 @@
 /* ORACLE JAPAN
    Typography/palette deliberately matched to ORACLE (world risk
-   intelligence) so the two read as one product family: Inter for Latin
-   figures, a single Japanese gothic (no serif) for everything else,
-   restrained dark-console palette. The one place this diverges on purpose
-   is the "level tower" — it uses Japan's real, official 5-level disaster
-   warning-scale colors (Lv5 紫/黒, Lv4 赤, Lv3 橙, Lv2 黄, Lv1 白), since
-   that's the signature element grounded in this project's own subject. */
+   intelligence) so the two read as one product family. IMPORTANT: ORACLE's
+   own CSS lists "Inter" first but never actually loads it as a webfont —
+   so on devices without Inter installed (effectively all of them), ORACLE
+   silently falls through to the OS system font (Roboto on Android). To
+   render identically, this file does the same: no Inter webfont is loaded,
+   and the stack puts system-ui/-apple-system BEFORE the Zen Kaku Gothic New
+   webfont, so Latin digits/text resolve to the system font exactly like
+   ORACLE while Japanese characters (which the system font typically lacks
+   proper glyphs for) fall through to the loaded Zen Kaku Gothic New. */
 
 :root{
   --bg: #07090c;
@@ -23,7 +26,7 @@
   --lv4: #d64545;
   --lv5: #6a2c91;
   --mono: 'JetBrains Mono', monospace;
-  --sans: 'Inter', 'Zen Kaku Gothic New', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", 'Zen Kaku Gothic New', sans-serif;
   color-scheme: dark;
 }
 
