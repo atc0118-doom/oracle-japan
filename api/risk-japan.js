@@ -448,7 +448,18 @@ async function fetchAllWarnings() {
 // JMA earthquake / volcano feed — adapted from JAPAN NOW
 // ---------------------------------------------------------------------------
 
-function isRoutineBulletin(title) { return /（定時）|\(定時\)/.test(title); }
+// FIX (clutter): an active volcano like Sakurajima gets a fresh "火山の状況に
+// 関する解説情報" (status commentary) issued roughly hourly, and "推定噴煙流向報"
+// (forecast ash-plume direction) issued similarly often — neither indicates
+// anything NEW happened, just JMA's routine ongoing monitoring of a volcano
+// that's already active. Left unfiltered, these buried the one or two
+// entries that actually matter under 8+ near-identical routine bulletins.
+// Treated the same as the existing "（定時）" ashfall-forecast routine check.
+function isRoutineBulletin(title) {
+  return /（定時）|\(定時\)/.test(title)
+    || title.startsWith('火山の状況に関する解説情報')
+    || title.startsWith('推定噴煙流向報');
+}
 
 async function fetchEarthquakes() {
   const r = await fetchWithTimeout(JMA_EQVOL_FEED_URL, { headers: { 'user-agent': 'OracleJapan/1.0' } });
