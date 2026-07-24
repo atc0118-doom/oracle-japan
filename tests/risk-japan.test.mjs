@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   disasterScore, newsCategoryScore, stateFromScore,
   dedupeByTitleStem, titleStem, extractActiveWarnings,
-  groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount
+  groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount,
+  isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory
 } from '../api/risk-japan.js';
 
 test('disasterScore weights 特別警報 much higher than 注意報', () => {
@@ -17,10 +18,10 @@ test('disasterScore caps at 100', () => {
   assert.equal(s, 100);
 });
 
-test('newsCategoryScore saturates around 8 articles', () => {
+test('newsCategoryScore saturates around 14 articles', () => {
   assert.equal(newsCategoryScore(0), 0);
-  assert.equal(newsCategoryScore(8), 100);
-  assert.equal(newsCategoryScore(20), 100);
+  assert.equal(newsCategoryScore(14), 100);
+  assert.equal(newsCategoryScore(30), 100);
 });
 
 test('stateFromScore thresholds', () => {
@@ -79,4 +80,55 @@ test('significantQuakeCount only counts non-routine 震度5+ entries', () => {
     { title: '桜島（定時）震度6弱相当', isRoutine: true }
   ];
   assert.equal(significantQuakeCount(entries), 1);
+});
+
+test('disasterScore: an advisory-only day (no 警報/特別警報) stays low even with many advisories', () => {
+  // Regression check for the real-world case observed in production: ~25
+  // active advisories nationwide (routine summer 雷注意報/濃霧注意報), zero
+  // actual 警報 or 特別警報, zero significant earthquakes. This should NOT
+  // land in WATCH/HIGH territory.
+  const s = disasterScore({ specialCount: 0, warningCount: 0, advisoryCount: 25, quakeSignificant: 0 });
+  assert.ok(s < 20, `expected a quiet advisory-only day to score low, got ${s}`);
+});
+
+test('disasterScore: a single 警報 still meaningfully outweighs a pile of advisories', () => {
+  const withWarning = disasterScore({ specialCount: 0, warningCount: 1, advisoryCount: 5, quakeSignificant: 0 });
+  const advisoryOnly = disasterScore({ specialCount: 0, warningCount: 0, advisoryCount: 5, quakeSignificant: 0 });
+  assert.ok(withWarning > advisoryOnly);
+});
+
+test('newsCategoryScore: a single event covered by ~5 outlets no longer auto-caps at 100', () => {
+  // Regression check: one real localized incident (e.g. one city's water
+  // outage) reported by 4-6 differently-worded headlines should not score
+  // identically to a genuinely widespread multi-event day.
+  const singleEventCoverage = newsCategoryScore(5);
+  assert.ok(singleEventCoverage < 100 && singleEventCoverage > 0);
+});
+
+test('isForeignOnlyStory flags a Korea-only story with no Japan relevance', () => {
+  assert.equal(isForeignOnlyStory('北朝鮮非武装地帯で地雷爆発…韓国軍が発表'), true);
+});
+
+test('isForeignOnlyStory does not flag a story explicitly about Japan-China relations', () => {
+  assert.equal(isForeignOnlyStory('尖閣諸島沖の日本領海に中国海警局の船が侵入'), false);
+});
+
+test('scoreHealthCategory rejects routine surveillance/market-report headlines with no disease+escalation pair', () => {
+  const articles = [
+    { title: '感染症の流行状況 2026年 第29週', url: 'https://a/1', source: 'x' },
+    { title: '外用感染症用軟膏の世界市場（2026年〜2032年）', url: 'https://a/2', source: 'x' },
+    { title: '県内でインフルエンザが急増、学級閉鎖相次ぐ', url: 'https://a/3', source: 'x' }
+  ];
+  const { count, hits } = scoreHealthCategory(articles);
+  assert.equal(count, 1);
+  assert.equal(hits[0].title, '県内でインフルエンザが急増、学級閉鎖相次ぐ');
+});
+
+test('scoreNewsCategory with domesticOnly excludes a foreign-only story leaking via a generic keyword', () => {
+  const articles = [
+    { title: '北朝鮮非武装地帯で地雷爆発…韓国軍が発表', url: 'https://a/1', source: 'x' },
+    { title: '大阪市内で爆発、消防が出動', url: 'https://a/2', source: 'x' }
+  ];
+  const { count } = scoreNewsCategory(articles, ['爆発'], { domesticOnly: true });
+  assert.equal(count, 1);
 });
