@@ -41,7 +41,7 @@ const GOOGLE_NEWS_JP_URL = `https://news.google.com/rss/search?q=${GOOGLE_NEWS_J
 // room for PublicSafety terms to surface even when real matches exist. A
 // separate, dedicated query for PublicSafety alone guarantees it gets its
 // own ~25-result window that nothing else can crowd out.
-const PUBLIC_SAFETY_QUERY = encodeURIComponent('(テロ OR 立てこもり OR 大規模火災 OR 殺傷 OR 爆発 OR 銃撃 OR 死亡事故 OR 殺人 OR 強盗 OR 放火 OR 轢き逃げ OR 容疑者逮捕)');
+const PUBLIC_SAFETY_QUERY = encodeURIComponent('(テロ OR 立てこもり OR 大規模火災 OR 殺傷 OR 爆発事故 OR ガス爆発 OR 爆発物 OR 銃撃 OR 死亡事故 OR 殺人 OR 強盗 OR 放火 OR 轢き逃げ OR 容疑者逮捕)');
 const PUBLIC_SAFETY_URL = `https://news.google.com/rss/search?q=${PUBLIC_SAFETY_QUERY}&hl=ja&gl=JP&ceid=JP:ja`;
 
 const JMA_AREA_JSON_URL = 'https://www.jma.go.jp/bosai/common/const/area.json';
@@ -99,7 +99,12 @@ const CATEGORY_KEYWORDS = {
   // matches is plausible for THOSE specific terms, but "治安・事件事故" as a
   // category name implies everyday crime/accident coverage too, which this
   // list had no terms for at all. Added common daily incident/accident terms.
-  PublicSafety: ['テロ', '立てこもり', '大規模火災', '殺傷', '爆発', '銃撃', '死亡事故', '殺人', '強盗', '放火', '轢き逃げ', '容疑者逮捕']
+  // FIX (over-triggering): bare '爆発' also matches common figurative/slang
+  // usage in Japanese (a festival slogan "漢気爆発" — "manly spirit explosion"
+  // — was the observed false positive), which has nothing to do with an
+  // actual explosion incident. Narrowed to compound terms that only appear
+  // in real incident reporting.
+  PublicSafety: ['テロ', '立てこもり', '大規模火災', '殺傷', '爆発事故', 'ガス爆発', '爆発物', '銃撃', '死亡事故', '殺人', '強盗', '放火', '轢き逃げ', '容疑者逮捕']
 };
 
 
@@ -594,4 +599,4 @@ function fallbackPayload(error) {
   };
 }
 
-export { dedupeByTitleStem, titleStem, extractActiveWarnings, groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount, disasterScore, newsCategoryScore, stateFromScore, parseRss, clean, decodeXml, isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory, scoreSecurityCategory };
+export { dedupeByTitleStem, titleStem, extractActiveWarnings, groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount, disasterScore, newsCategoryScore, stateFromScore, parseRss, clean, decodeXml, isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory, scoreSecurityCategory, CATEGORY_KEYWORDS };
