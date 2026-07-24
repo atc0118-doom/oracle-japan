@@ -63,8 +63,18 @@ const CATEGORY_KEYWORDS = {
   // an ACTOR term (a state/flashpoint relevant to Japan's security) AND a
   // separate ACTION/THREAT term (an actual incident, not just the country
   // being mentioned) in the same headline.
+  // FIX (over-triggering, round 4): bare '中国' as an actor matched ANY
+  // China-related security story worldwide, including ones with zero
+  // connection to Japan (observed case: "中国にミサイル発射を抗議 オーストラリア
+  // 外相" — an Australia-China dispute). '尖閣'/'台湾'/'北朝鮮' are flashpoints
+  // specific enough to Japan's own security concerns that they can stand
+  // alone with an action term (see scoreSecurityCategory below); '中国' and
+  // 'ロシア軍' are too broad for that and now additionally require a
+  // Japan-relevance term (reusing the same JAPAN_RELEVANCE_TERMS list used
+  // elsewhere) before they count.
   Security: {
-    actors: ['北朝鮮', '中国', '尖閣', '台湾', 'ロシア軍'],
+    flashpoints: ['尖閣', '台湾', '北朝鮮'],
+    broadActors: ['中国', 'ロシア軍'],
     actions: ['ミサイル', '弾道', '領海侵入', '領空侵犯', 'スクランブル', '侵入', '地雷', '軍艦', '実戦訓練', '有事', '演習']
   },
   // FIX (over-triggering, round 2): bare '感染症' matched routine weekly
@@ -293,11 +303,15 @@ function isForeignOnlyStory(title) {
 }
 
 function scoreSecurityCategory(articles) {
-  const { actors, actions } = CATEGORY_KEYWORDS.Security;
-  const hits = articles.filter(a =>
-    actors.some(x => a.title.includes(x)) &&
-    actions.some(x => a.title.includes(x))
-  );
+  const { flashpoints, broadActors, actions } = CATEGORY_KEYWORDS.Security;
+  const hits = articles.filter(a => {
+    if (!actions.some(x => a.title.includes(x))) return false;
+    if (flashpoints.some(x => a.title.includes(x))) return true;
+    if (broadActors.some(x => a.title.includes(x))) {
+      return JAPAN_RELEVANCE_TERMS.some(t => a.title.includes(t));
+    }
+    return false;
+  });
   return { count: hits.length, hits: hits.slice(0, 6) };
 }
 
