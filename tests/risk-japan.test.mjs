@@ -5,7 +5,7 @@ import {
   dedupeByTitleStem, titleStem, extractActiveWarnings,
   groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount,
   isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory, parseRss,
-  scoreSecurityCategory
+  scoreSecurityCategory, CATEGORY_KEYWORDS
 } from '../api/risk-japan.js';
 
 test('disasterScore weights 特別警報 much higher than 注意報', () => {
@@ -167,4 +167,14 @@ test('scoreNewsCategory with domesticOnly excludes a foreign-only story leaking 
   ];
   const { count } = scoreNewsCategory(articles, ['爆発'], { domesticOnly: true });
   assert.equal(count, 1);
+});
+
+test('PublicSafety rejects a figurative "爆発" used as a festival slogan, not an actual incident', () => {
+  const articles = [
+    { title: '『横濱漢祭 2026』今年も応援総長に角田信朗さん就任決定ッ！今年のテーマは「漢気爆発 盆バイエ」!!', url: 'https://a/1', source: 'x' },
+    { title: '工場でガス爆発、2人搬送 東京都内', url: 'https://a/2', source: 'x' }
+  ];
+  const { count, hits } = scoreNewsCategory(articles, CATEGORY_KEYWORDS.PublicSafety, { domesticOnly: true });
+  assert.equal(count, 1);
+  assert.equal(hits[0].title, '工場でガス爆発、2人搬送 東京都内');
 });
