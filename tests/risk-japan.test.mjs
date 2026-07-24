@@ -123,10 +123,12 @@ test('scoreSecurityCategory rejects actor-only or action-only headlines with no 
     { title: '中国にミサイル発射を抗議 オーストラリア外相：時事ドットコム', url: 'https://a/5', source: 'x' }
   ];
   const { count, hits } = scoreSecurityCategory(articles);
-  assert.equal(count, 2);
+  // The landmine story is a DMZ/inter-Korean border hazard with no actual
+  // bearing on Japan — it correctly does NOT match (no term in `actions`
+  // describes it since '地雷' was removed; see round-5 fix above).
+  assert.equal(count, 1);
   assert.deepEqual(hits.map(h => h.title), [
-    '尖閣諸島・魚釣島沖の領海に中国海警局の船4隻が相次いで侵入',
-    '北朝鮮が非武装地帯に埋設した大量の地雷、豪雨で一部流出か'
+    '尖閣諸島・魚釣島沖の領海に中国海警局の船4隻が相次いで侵入'
   ]);
 });
 
