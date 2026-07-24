@@ -74,6 +74,16 @@ test('isRoutineBulletin detects scheduled ashfall bulletins', () => {
   assert.equal(isRoutineBulletin('震度速報'), false);
 });
 
+test('isRoutineBulletin also treats routine volcano commentary/forecast bulletins as routine', () => {
+  // These are issued roughly hourly for any already-active volcano and
+  // don't indicate a new event — same treatment as the (定時) ashfall case.
+  assert.equal(isRoutineBulletin('火山の状況に関する解説情報（桜島）'), true);
+  assert.equal(isRoutineBulletin('推定噴煙流向報'), true);
+  // An actual eruption report/warning should NOT be treated as routine.
+  assert.equal(isRoutineBulletin('噴火に関する火山観測報'), false);
+  assert.equal(isRoutineBulletin('噴火警報'), false);
+});
+
 test('significantQuakeCount only counts non-routine 震度5+ entries', () => {
   const entries = [
     { title: '震度5弱を観測', isRoutine: false },
