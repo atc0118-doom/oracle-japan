@@ -79,7 +79,7 @@ function render(data) {
   document.getElementById('scoreState').textContent = data.state || '—';
   document.getElementById('topDriver').textContent = DRIVER_LABELS[data.topDriver] || data.topDriver || '—';
 
-  const lvl = levelFromScore(score);
+  const lvl = levelFromScore(data.drivers?.Disaster ?? 0);
   document.querySelectorAll('.level-cell').forEach(cell => {
     cell.classList.toggle('active', Number(cell.dataset.level) === lvl);
   });
