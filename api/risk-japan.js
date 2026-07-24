@@ -30,7 +30,7 @@ const NHK_RSS_URL = 'https://news.web.nhk/n-data/conf/na/rss/cat0.xml';
 // pattern as ORACLE's single fetchGoogleNews query) — categorization
 // happens downstream via CATEGORY_KEYWORDS, not via separate per-category
 // feeds.
-const GOOGLE_NEWS_JP_QUERY = encodeURIComponent('(北朝鮮 OR ミサイル OR 弾道ミサイル OR 領海侵入 OR 領空侵犯 OR 台湾有事 OR 尖閣 OR スクランブル発進 OR 感染症 OR インフルエンザ OR 鳥インフルエンザ OR パンデミック OR 感染拡大 OR ノロウイルス OR 停電 OR 断水 OR 運休 OR システム障害 OR 通信障害 OR 大規模障害 OR 欠航 OR テロ OR 立てこもり OR 大規模火災 OR 殺傷 OR 爆発 OR 銃撃)');
+const GOOGLE_NEWS_JP_QUERY = encodeURIComponent('(北朝鮮 OR ミサイル OR 弾道ミサイル OR 領海侵入 OR 領空侵犯 OR 台湾有事 OR 尖閣 OR スクランブル発進 OR 感染症 OR インフルエンザ OR 鳥インフルエンザ OR パンデミック OR 感染拡大 OR ノロウイルス OR 停電 OR 断水 OR 運休 OR システム障害 OR 通信障害 OR 大規模障害 OR 欠航 OR テロ OR 立てこもり OR 大規模火災 OR 殺傷 OR 爆発 OR 銃撃 OR 死亡事故 OR 殺人 OR 強盗 OR 放火 OR 轢き逃げ OR 容疑者逮捕)');
 const GOOGLE_NEWS_JP_URL = `https://news.google.com/rss/search?q=${GOOGLE_NEWS_JP_QUERY}&hl=ja&gl=JP&ceid=JP:ja`;
 
 const JMA_AREA_JSON_URL = 'https://www.jma.go.jp/bosai/common/const/area.json';
@@ -68,7 +68,12 @@ const CATEGORY_KEYWORDS = {
     escalation: ['急増', '拡大', '流行入り', 'クラスター', 'アウトブレイク', '集団感染', '警戒レベル', '警報']
   },
   Infrastructure: ['停電', '断水', '運休', 'システム障害', '通信障害', '大規模障害', '欠航'],
-  PublicSafety: ['テロ', '立てこもり', '大規模火災', '殺傷', '爆発', '銃撃']
+  // FIX (too narrow): the original list (テロ/立てこもり/大規模火災/殺傷/爆発/銃撃)
+  // only matches catastrophic, rare event types — a day with genuinely zero
+  // matches is plausible for THOSE specific terms, but "治安・事件事故" as a
+  // category name implies everyday crime/accident coverage too, which this
+  // list had no terms for at all. Added common daily incident/accident terms.
+  PublicSafety: ['テロ', '立てこもり', '大規模火災', '殺傷', '爆発', '銃撃', '死亡事故', '殺人', '強盗', '放火', '轢き逃げ', '容疑者逮捕']
 };
 
 
