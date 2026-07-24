@@ -119,7 +119,8 @@ test('scoreSecurityCategory rejects actor-only or action-only headlines with no 
     { title: '北朝鮮・平壌で「犬肉料理」のコンテスト開催 伝統文化、味や見栄え競う', url: 'https://a/1', source: 'x' },
     { title: 'イラク国境付近での攻撃を受け、ミサイルやドローンがクウェートを標的に', url: 'https://a/2', source: 'x' },
     { title: '尖閣諸島・魚釣島沖の領海に中国海警局の船4隻が相次いで侵入', url: 'https://a/3', source: 'x' },
-    { title: '北朝鮮が非武装地帯に埋設した大量の地雷、豪雨で一部流出か', url: 'https://a/4', source: 'x' }
+    { title: '北朝鮮が非武装地帯に埋設した大量の地雷、豪雨で一部流出か', url: 'https://a/4', source: 'x' },
+    { title: '中国にミサイル発射を抗議 オーストラリア外相：時事ドットコム', url: 'https://a/5', source: 'x' }
   ];
   const { count, hits } = scoreSecurityCategory(articles);
   assert.equal(count, 2);
@@ -127,6 +128,16 @@ test('scoreSecurityCategory rejects actor-only or action-only headlines with no 
     '尖閣諸島・魚釣島沖の領海に中国海警局の船4隻が相次いで侵入',
     '北朝鮮が非武装地帯に埋設した大量の地雷、豪雨で一部流出か'
   ]);
+});
+
+test('scoreSecurityCategory allows a broad-actor (中国/ロシア軍) story only when it also carries a Japan-relevance term', () => {
+  const articles = [
+    { title: '中国軍艦、日本領海に接近 防衛省が警戒', url: 'https://a/1', source: 'x' },
+    { title: 'ロシア軍が演習を実施、米国が非難声明', url: 'https://a/2', source: 'x' }
+  ];
+  const { count, hits } = scoreSecurityCategory(articles);
+  assert.equal(count, 1);
+  assert.equal(hits[0].title, '中国軍艦、日本領海に接近 防衛省が警戒');
 });
 
 test('scoreHealthCategory rejects routine surveillance/market-report headlines with no disease+escalation pair', () => {
