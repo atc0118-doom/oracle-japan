@@ -1,1 +1,468 @@
+// ORACLE JAPAN — domestic life-risk intelligence
+//
+// DESIGN NOTE: this is NOT a copy of ORACLE (world geopolitical risk) or a
+// copy of JAPAN NOW (neutral "what's happening" aggregator, no score). It
+// borrows plumbing from ORACLE (cache/TTL, Redis persistence, isBaseline
+// honesty pattern, keyword-driver scoring) and borrows JMA data-fetching
+// from JAPAN NOW (official warnings + earthquake/volcano feed), but the
+// scoring model itself is new: "how much domestic life-risk pressure is
+// there right now", not "world geopolitical tension" and not "neutral news
+// digest".
+//
+// CATEGORY SPLIT (see WEIGHTS below):
+// - Disaster: driven by STRUCTURED official JMA data (active warning
+//   severity + real earthquake/volcano activity), not keyword-matched news.
+//   This is deliberately more trustworthy than a keyword heuristic — JMA's
+//   own warning levels ARE the ground truth for this category.
+// - Security / Health / Infrastructure / PublicSafety: driven by keyword-
+//   matched news volume (NHK + Google News Japan), same heuristic-scoring
+//   approach ORACLE uses for its Military/Diplomatic/Cyber/etc. drivers —
+//   with the same acknowledged limitation: a keyword match is a proxy for
+//   "this is being reported on a lot", not verified ground truth.
 
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const AREA_CODES_TTL_MS = 24 * 60 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 6500;
+
+const NHK_RSS_URL = 'https://news.web.nhk/n-data/conf/na/rss/cat0.xml';
+
+// Broad query covering all four news-driven categories at once (same
+// pattern as ORACLE's single fetchGoogleNews query) — categorization
+// happens downstream via CATEGORY_KEYWORDS, not via separate per-category
+// feeds.
+const GOOGLE_NEWS_JP_QUERY = encodeURIComponent('(北朝鮮 OR ミサイル OR 中国 軍 OR 領海侵入 OR 台湾 有事 OR 自衛隊 OR 感染症 OR インフルエンザ OR 鳥インフルエンザ OR パンデミック OR 停電 OR 断水 OR 運休 OR システム障害 OR 通信障害 OR テロ OR 立てこもり OR 大規模火災 OR 事件 OR 事故)');
+const GOOGLE_NEWS_JP_URL = `https://news.google.com/rss/search?q=${GOOGLE_NEWS_JP_QUERY}&hl=ja&gl=JP&ceid=JP:ja`;
+
+const JMA_AREA_JSON_URL = 'https://www.jma.go.jp/bosai/common/const/area.json';
+const JMA_WARNING_BASE = 'https://www.jma.go.jp/bosai/warning/data/warning/';
+const JMA_EQVOL_FEED_URL = 'https://www.data.jma.go.jp/developer/xml/feed/eqvol.xml';
+
+// ---------------------------------------------------------------------------
+// Category keywords for the four news-driven drivers. Unlike ORACLE's
+// English lists, Japanese has no word boundaries, so matching is plain
+// substring inclusion rather than ORACLE's word-boundary regex approach.
+// ---------------------------------------------------------------------------
+const CATEGORY_KEYWORDS = {
+  Security: ['北朝鮮', 'ミサイル', '弾道', '中国軍', '領海侵入', '領空侵犯', '台湾有事', '自衛隊', '尖閣', 'スクランブル', '軍事'],
+  Health: ['感染症', 'インフルエンザ', '鳥インフルエンザ', 'パンデミック', '流行', 'ノロウイルス', '麻疹', '厚労省 警戒'],
+  Infrastructure: ['停電', '断水', '運休', 'システム障害', '通信障害', '大規模障害', '欠航'],
+  PublicSafety: ['テロ', '立てこもり', '大規模火災', '殺傷', '爆発', '銃撃']
+};
+
+// Disaster and the four news categories are combined with these weights.
+// Disaster carries the largest single weight on purpose: for a *domestic
+// life-risk* index (unlike ORACLE's geopolitical-tension index), earthquakes
+// and active severe-weather warnings are the single most direct threat to
+// daily life in Japan, and they come from structured official data rather
+// than a keyword proxy.
+const WEIGHTS = { Disaster: 0.35, Security: 0.25, Health: 0.15, Infrastructure: 0.15, PublicSafety: 0.10 };
+
+const CACHE = globalThis.__ORACLE_JAPAN_CACHE__ || (globalThis.__ORACLE_JAPAN_CACHE__ = {
+  articles: null, ts: 0, lastError: null, sourceReport: null, areaOffices: null, areaTs: 0
+});
+
+const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || null;
+const REDIS_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || null;
+const REDIS_LOG_KEY = 'oraclejapan:score_log';
+const REDIS_LOG_MAX_AGE_MS = 9 * 24 * 60 * 60 * 1000;
+
+async function redisCommand(command) {
+  if (!REDIS_URL || !REDIS_TOKEN) return null;
+  try {
+    const r = await fetchWithTimeout(REDIS_URL, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${REDIS_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(command),
+      timeout: 4000
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j?.result ?? null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function logScoreToRedis({ score, state, topDriver }) {
+  if (!REDIS_URL || !REDIS_TOKEN) return;
+  const now = Date.now();
+  const member = JSON.stringify({ ts: now, score, state, topDriver });
+  await redisCommand(['ZADD', REDIS_LOG_KEY, now, member]);
+  await redisCommand(['ZREMRANGEBYSCORE', REDIS_LOG_KEY, 0, now - REDIS_LOG_MAX_AGE_MS]);
+}
+
+function parseRedisLogEntries(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(s => { try { return JSON.parse(s); } catch (_) { return null; } }).filter(Boolean);
+}
+
+async function getServerDelta24h() {
+  if (!REDIS_URL || !REDIS_TOKEN) return { available: false };
+  const now = Date.now();
+  const windowMin = now - 30 * 60 * 60 * 1000;
+  const windowMax = now - 20 * 60 * 60 * 1000;
+  const raw = await redisCommand(['ZRANGEBYSCORE', REDIS_LOG_KEY, windowMin, windowMax]);
+  const entries = parseRedisLogEntries(raw);
+  if (!entries.length) return { available: false };
+  const target = now - 24 * 60 * 60 * 1000;
+  const closest = entries.reduce((best, e) => Math.abs(e.ts - target) < Math.abs(best.ts - target) ? e : best);
+  return { available: true, refScore: closest.score, refTs: closest.ts };
+}
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=240');
+
+  try {
+    const now = Date.now();
+    if (CACHE.payload && now - CACHE.ts < CACHE_TTL_MS) {
+      return res.status(200).json(CACHE.payload);
+    }
+
+    const payload = await buildPayload();
+    payload.serverDelta24h = await getServerDelta24h();
+    if (!payload.isBaseline) {
+      await logScoreToRedis({ score: payload.score, state: payload.state, topDriver: payload.topDriver });
+    }
+
+    CACHE.payload = payload;
+    CACHE.ts = Date.now();
+    res.status(200).json(payload);
+  } catch (error) {
+    res.status(200).json(fallbackPayload(error?.message || 'unknown'));
+  }
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const attempts = options.retries ?? 1;
+  let lastErr;
+  for (let attempt = 0; attempt <= attempts; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeout || FETCH_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (err) {
+      lastErr = err;
+      if (attempt < attempts) await new Promise(r => setTimeout(r, 250));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastErr;
+}
+
+// ---------------------------------------------------------------------------
+// News (Security / Health / Infrastructure / PublicSafety input)
+// ---------------------------------------------------------------------------
+
+async function fetchAllNews() {
+  const collectors = [['NHK', fetchNHKNews], ['Google News (Japan)', fetchGoogleNewsJP]];
+  const settled = await Promise.allSettled(collectors.map(async ([name, fn]) => {
+    const items = await fn();
+    return { name, ok: true, count: items.length, items };
+  }));
+  const report = settled.map((r, i) => {
+    const name = collectors[i][0];
+    if (r.status === 'fulfilled') return { name, ok: true, count: r.value.count };
+    return { name, ok: false, count: 0, error: r.reason?.message || 'error' };
+  });
+  let items = [];
+  for (const r of settled) if (r.status === 'fulfilled') items.push(...r.value.items);
+  items = dedupeByTitleStem(items);
+  return { items, report };
+}
+
+async function fetchNHKNews() {
+  const r = await fetchWithTimeout(NHK_RSS_URL, { headers: { 'user-agent': 'OracleJapan/1.0' } });
+  if (!r.ok) throw new Error('nhk ' + r.status);
+  return parseRss(await r.text(), 'NHK');
+}
+
+async function fetchGoogleNewsJP() {
+  const r = await fetchWithTimeout(GOOGLE_NEWS_JP_URL, { headers: { 'user-agent': 'OracleJapan/1.0' } });
+  if (!r.ok) throw new Error('google_news_jp ' + r.status);
+  return parseRss(await r.text(), 'Google News');
+}
+
+function parseRss(xml, fallbackSource = 'RSS') {
+  const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].map(m => m[1]);
+  return items.map(block => {
+    const rawTitle = decodeXml((block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/)?.[1] || block.match(/<title>([\s\S]*?)<\/title>/)?.[1] || ''));
+    const title = clean(rawTitle
+      .replace(/\s+[-|｜]\s+[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/, '')
+      .replace(/\s+[-|｜]\s+[^-|｜]+$/, '')
+      .replace(/\s*[|｜]\s*[^-|｜]+$/, '')
+      .replace(/[(（][^()（）]{0,20}(NNN|JNN|FNN|ANN|TXN)[^()（）]{0,20}[)）]\s*$/, '')
+    ).slice(0, 140);
+    const url = decodeXml(block.match(/<link>([\s\S]*?)<\/link>/)?.[1] || '');
+    const source = decodeXml(block.match(/<source[^>]*>([\s\S]*?)<\/source>/)?.[1] || fallbackSource);
+    const pub = decodeXml(block.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1] || '');
+    return { title, url, source: clean(source) || fallbackSource, published: pub };
+  }).filter(a => a.title && a.url);
+}
+
+function decodeXml(s = '') {
+  return String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&#160;/g, ' ');
+}
+function clean(s = '') { return String(s).replace(/\s+/g, ' ').trim(); }
+
+function titleStem(title) {
+  return clean(title).toLowerCase().replace(/[^a-z0-9ぁ-んァ-ヶ一-龠]+/g, '').slice(0, 24);
+}
+function dedupeByTitleStem(items) {
+  const seen = new Set(); const out = [];
+  for (const a of items) {
+    const key = titleStem(a.title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key); out.push(a);
+  }
+  return out;
+}
+
+// Count how many articles mention at least one term from a category's list
+// (article-level presence, not raw term frequency — mirrors ORACLE's
+// intent of "how much is this being reported on" rather than double-
+// counting a single article that repeats a keyword many times).
+function scoreNewsCategory(articles, terms) {
+  const hits = articles.filter(a => terms.some(t => a.title.includes(t)));
+  return { count: hits.length, hits: hits.slice(0, 6) };
+}
+
+// ---------------------------------------------------------------------------
+// JMA warnings (structured Disaster input) — adapted from JAPAN NOW
+// ---------------------------------------------------------------------------
+
+const JMA_WARNING_CODE_NAMES = {
+  '02': '暴風雪警報', '03': '大雨警報', '04': '洪水警報', '05': '暴風警報', '06': '大雪警報',
+  '07': '波浪警報', '08': '高潮警報', '09': '土砂災害警報', '10': '大雨注意報', '12': '大雪注意報',
+  '13': '風雪注意報', '14': '雷注意報', '15': '強風注意報', '16': '波浪注意報', '17': '融雪注意報',
+  '18': '洪水注意報', '19': '高潮注意報', '20': '濃霧注意報', '21': '乾燥注意報', '22': 'なだれ注意報',
+  '23': '低温注意報', '24': '霜注意報', '25': '着氷注意報', '26': '着雪注意報', '29': '土砂災害注意報',
+  '32': '暴風雪特別警報', '33': '大雨特別警報', '35': '暴風特別警報', '36': '大雪特別警報',
+  '37': '波浪特別警報', '38': '高潮特別警報', '39': '土砂災害特別警報', '43': '大雨危険警報',
+  '48': '高潮危険警報', '49': '土砂災害危険警報'
+};
+// Split by severity tier for scoring — 特別警報(emergency) counts far more
+// than a 注意報(advisory). This drives the Disaster structural score.
+const SPECIAL_WARNING_CODES = new Set(['32', '33', '35', '36', '37', '38', '39', '43', '48', '49']);
+const WARNING_CODES = new Set(['02', '03', '04', '05', '06', '07', '08', '09']);
+
+const PREFECTURE_GROUP_LABELS = {
+  '011000': '北海道', '012000': '北海道', '013000': '北海道', '014030': '北海道',
+  '014100': '北海道', '015000': '北海道', '016000': '北海道', '017000': '北海道',
+  '471000': '沖縄県', '472000': '沖縄県', '473000': '沖縄県', '474000': '沖縄県'
+};
+
+async function fetchJMAOffices() {
+  const now = Date.now();
+  if (CACHE.areaOffices && now - CACHE.areaTs < AREA_CODES_TTL_MS) return CACHE.areaOffices;
+  const r = await fetchWithTimeout(JMA_AREA_JSON_URL, { headers: { 'user-agent': 'OracleJapan/1.0' } });
+  if (!r.ok) throw new Error('jma_area ' + r.status);
+  const j = await r.json();
+  const centers = j.centers || {};
+  const officesById = j.offices || {};
+  const orderedCodes = [];
+  for (const center of Object.values(centers)) {
+    for (const code of (center.children || [])) {
+      if (officesById[code] && !orderedCodes.includes(code)) orderedCodes.push(code);
+    }
+  }
+  for (const code of Object.keys(officesById)) if (!orderedCodes.includes(code)) orderedCodes.push(code);
+  const offices = orderedCodes.map(code => ({ code, name: officesById[code].name }));
+  CACHE.areaOffices = offices; CACHE.areaTs = now;
+  return offices;
+}
+
+function extractActiveWarnings(data) {
+  const found = [];
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (typeof node.code === 'string' && typeof node.status === 'string' && node.status !== '解除') {
+      found.push(node.code);
+    }
+    Object.values(node).forEach(walk);
+  };
+  walk(data);
+  return found;
+}
+
+function groupWarningsByPrefecture(officeResults) {
+  const grouped = new Map();
+  for (const { office, codes } of officeResults) {
+    if (!codes || !codes.length) continue;
+    const label = PREFECTURE_GROUP_LABELS[office.code] || office.name;
+    if (!grouped.has(label)) grouped.set(label, { prefecture: label, codes: new Set(), names: new Set() });
+    const entry = grouped.get(label);
+    codes.forEach(c => { entry.codes.add(c); entry.names.add(JMA_WARNING_CODE_NAMES[c] || `警報コード${c}`); });
+  }
+  return [...grouped.values()].map(g => ({ prefecture: g.prefecture, codes: [...g.codes], warnings: [...g.names] }));
+}
+
+async function fetchAllWarnings() {
+  const offices = await fetchJMAOffices();
+  const settled = await Promise.allSettled(offices.map(async (office) => {
+    const r = await fetchWithTimeout(JMA_WARNING_BASE + office.code + '.json', { headers: { 'user-agent': 'OracleJapan/1.0' }, timeout: 5000 });
+    if (!r.ok) throw new Error(String(r.status));
+    const j = await r.json();
+    return { office, codes: extractActiveWarnings(j) };
+  }));
+  let failCount = 0;
+  const officeResults = [];
+  for (const r of settled) {
+    if (r.status !== 'fulfilled') { failCount++; continue; }
+    officeResults.push(r.value);
+  }
+  const active = groupWarningsByPrefecture(officeResults);
+  const error = failCount > offices.length * 0.5 ? `${failCount}/${offices.length} offices unreachable` : null;
+
+  let specialCount = 0, warningCount = 0, advisoryCount = 0;
+  for (const entry of active) {
+    for (const c of entry.codes) {
+      if (SPECIAL_WARNING_CODES.has(c)) specialCount++;
+      else if (WARNING_CODES.has(c)) warningCount++;
+      else advisoryCount++;
+    }
+  }
+  return { items: active, error, specialCount, warningCount, advisoryCount };
+}
+
+// ---------------------------------------------------------------------------
+// JMA earthquake / volcano feed — adapted from JAPAN NOW
+// ---------------------------------------------------------------------------
+
+function isRoutineBulletin(title) { return /（定時）|\(定時\)/.test(title); }
+
+async function fetchEarthquakes() {
+  const r = await fetchWithTimeout(JMA_EQVOL_FEED_URL, { headers: { 'user-agent': 'OracleJapan/1.0' } });
+  if (!r.ok) throw new Error('jma_eqvol ' + r.status);
+  const xml = await r.text();
+  const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map(m => m[1]);
+  return entries.map(block => {
+    const title = decodeXml(block.match(/<title>([\s\S]*?)<\/title>/)?.[1] || '');
+    const updated = decodeXml(block.match(/<updated>([\s\S]*?)<\/updated>/)?.[1] || '');
+    const link = block.match(/<link href="([^"]*)"/)?.[1] || '';
+    return { title: clean(title), updated, url: link, isRoutine: isRoutineBulletin(title) };
+  }).filter(e => e.title).sort((a, b) => new Date(b.updated || 0) - new Date(a.updated || 0));
+}
+
+// Rough severity signal from earthquake feed titles: JMA's 震度速報/地震情報
+// bulletins mention 震度 (seismic intensity) levels in the title text; a
+// bulletin mentioning intensity 5弱 or higher within the last few entries is
+// treated as a meaningful recent-earthquake signal. This is a coarse text
+// heuristic (like ORACLE's keyword matching), not a parsed structured field
+// — the Atom feed's title format doesn't expose intensity as clean JSON.
+const SIGNIFICANT_INTENSITY_PATTERN = /震度[5-7]/;
+function significantQuakeCount(entries) {
+  return entries.filter(e => !e.isRoutine && SIGNIFICANT_INTENSITY_PATTERN.test(e.title)).length;
+}
+
+// ---------------------------------------------------------------------------
+// Scoring
+// ---------------------------------------------------------------------------
+
+function disasterScore({ specialCount, warningCount, advisoryCount, quakeSignificant }) {
+  // Structural score, not keyword-derived: each 特別警報(emergency) contributes
+  // heavily, each 警報 moderately, each 注意報 lightly, each significant
+  // earthquake (震度5弱+) heavily. Capped at 100.
+  const raw = specialCount * 30 + warningCount * 8 + advisoryCount * 2 + quakeSignificant * 25;
+  return Math.min(100, raw);
+}
+
+function newsCategoryScore(count) {
+  // Simple saturating curve: a handful of matching articles already signals
+  // real coverage; beyond ~8 articles the marginal signal flattens out.
+  return Math.min(100, Math.round((count / 8) * 100));
+}
+
+function stateFromScore(s) { if (s >= 70) return 'CRITICAL'; if (s >= 50) return 'HIGH'; if (s >= 30) return 'WATCH'; return 'STABLE'; }
+function round1(n) { return Math.round(Number(n || 0) * 10) / 10; }
+
+async function buildPayload() {
+  const [newsResult, warningsResult, quakesResult] = await Promise.allSettled([
+    fetchAllNews(), fetchAllWarnings(), fetchEarthquakes()
+  ]);
+
+  const news = newsResult.status === 'fulfilled' ? newsResult.value.items : [];
+  const newsReport = newsResult.status === 'fulfilled' ? newsResult.value.report : [{ name: 'News', ok: false, error: newsResult.reason?.message || 'error' }];
+
+  const warningsData = warningsResult.status === 'fulfilled' ? warningsResult.value : { items: [], specialCount: 0, warningCount: 0, advisoryCount: 0, error: warningsResult.reason?.message || 'error' };
+  const quakes = quakesResult.status === 'fulfilled' ? quakesResult.value : [];
+  const quakesError = quakesResult.status === 'rejected' ? (quakesResult.reason?.message || 'error') : null;
+
+  const anyLiveNews = news.length > 0;
+  const anyLiveDisaster = warningsData.items.length >= 0 && !warningsData.error || quakes.length > 0;
+  const isBaseline = !anyLiveNews && !anyLiveDisaster;
+
+  const failedSources = [
+    ...newsReport.filter(r => !r.ok).map(r => `${r.name} ${r.error}`),
+    ...(warningsData.error ? [`JMA warnings ${warningsData.error}`] : []),
+    ...(quakesError ? [`JMA earthquakes ${quakesError}`] : [])
+  ];
+
+  const driverScores = isBaseline
+    ? { Disaster: 15, Security: 10, Health: 5, Infrastructure: 5, PublicSafety: 5 }
+    : {
+        Disaster: disasterScore({
+          specialCount: warningsData.specialCount, warningCount: warningsData.warningCount,
+          advisoryCount: warningsData.advisoryCount, quakeSignificant: significantQuakeCount(quakes)
+        }),
+        Security: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.Security).count),
+        Health: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.Health).count),
+        Infrastructure: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.Infrastructure).count),
+        PublicSafety: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.PublicSafety).count)
+      };
+
+  const finalScore = Math.round(Object.entries(WEIGHTS).reduce((sum, [k, w]) => sum + (driverScores[k] || 0) * w, 0));
+  const state = stateFromScore(finalScore);
+  const topDriver = Object.entries(driverScores).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Disaster';
+
+  const categoryEvidence = {};
+  for (const [cat, terms] of Object.entries(CATEGORY_KEYWORDS)) {
+    categoryEvidence[cat] = isBaseline ? [] : scoreNewsCategory(news, terms).hits.map(a => ({ title: a.title, source: a.source, url: a.url }));
+  }
+
+  return {
+    ok: true,
+    mode: isBaseline ? 'baseline' : 'live',
+    isBaseline,
+    dataStatus: isBaseline ? 'BASELINE — 情報源に到達できません' : 'LIVE',
+    updatedAt: new Date().toISOString(),
+    cacheTtlMinutes: Math.round(CACHE_TTL_MS / 60000),
+    sourceError: failedSources.length ? failedSources.join(' · ') : null,
+    score: finalScore,
+    state,
+    topDriver,
+    drivers: driverScores,
+    weights: WEIGHTS,
+    disasterDetail: isBaseline ? null : {
+      specialWarningCount: warningsData.specialCount,
+      warningCount: warningsData.warningCount,
+      advisoryCount: warningsData.advisoryCount,
+      significantEarthquakes: significantQuakeCount(quakes),
+      activeWarningsByPrefecture: warningsData.items
+    },
+    categoryEvidence,
+    earthquakes: isBaseline ? [] : quakes.filter(q => !q.isRoutine).slice(0, 10),
+    news: isBaseline ? [] : news.slice(0, 30),
+    sourceReport: [
+      ...newsReport,
+      { name: 'JMA Warnings', ok: !warningsData.error, error: warningsData.error || undefined },
+      { name: 'JMA Earthquakes', ok: !quakesError, error: quakesError || undefined }
+    ]
+  };
+}
+
+function fallbackPayload(error) {
+  return {
+    ok: true, mode: 'fallback', isBaseline: true, dataStatus: 'FALLBACK — 内部エラー', sourceError: error,
+    updatedAt: new Date().toISOString(), cacheTtlMinutes: Math.round(CACHE_TTL_MS / 60000),
+    score: 15, state: 'STABLE', topDriver: 'Disaster',
+    drivers: { Disaster: 15, Security: 10, Health: 5, Infrastructure: 5, PublicSafety: 5 },
+    weights: WEIGHTS, disasterDetail: null, categoryEvidence: {}, earthquakes: [], news: [],
+    sourceReport: [{ name: 'All sources', ok: false, error }]
+  };
+}
+
+export { dedupeByTitleStem, titleStem, extractActiveWarnings, groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount, disasterScore, newsCategoryScore, stateFromScore, parseRss, clean, decodeXml };
