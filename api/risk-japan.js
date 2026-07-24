@@ -183,6 +183,15 @@ export default async function handler(req, res) {
     if (!payload.isBaseline) {
       await logScoreToRedis({ score: payload.score, state: payload.state, topDriver: payload.topDriver });
     }
+    // Lightweight diagnostic so Redis connectivity can be confirmed
+    // immediately, without waiting ~24h for serverDelta24h to have enough
+    // logged history to find a same-time-yesterday reference. `configured`
+    // just checks the env vars are present; `pingOk` actually round-trips
+    // to Redis to confirm the credentials work.
+    payload.redisDiagnostic = {
+      configured: !!(REDIS_URL && REDIS_TOKEN),
+      pingOk: !!(REDIS_URL && REDIS_TOKEN) ? (await redisCommand(['PING'])) !== null : null
+    };
 
     CACHE.payload = payload;
     CACHE.ts = Date.now();
