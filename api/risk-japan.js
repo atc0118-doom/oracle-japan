@@ -51,10 +51,17 @@ const CATEGORY_KEYWORDS = {
   // a scramble, explicit Taiwan-contingency framing) rather than routine
   // defense-affairs reporting.
   Security: ['北朝鮮', 'ミサイル', '弾道ミサイル', '領海侵入', '領空侵犯', '台湾有事', '尖閣', 'スクランブル発進', '中国軍 艦艇'],
-  // FIX (over-triggering): bare '流行' also matches unrelated "trend/fashion"
-  // usage ("〜が流行" is common in lifestyle/entertainment headlines with zero
-  // disease connection), so it's removed in favor of more specific compounds.
-  Health: ['感染症', 'インフルエンザ', '鳥インフルエンザ', 'パンデミック', '感染拡大', 'ノロウイルス', '麻疹', '厚労省 警戒'],
+  // FIX (over-triggering, round 2): bare '感染症' matched routine weekly
+  // surveillance bulletins ("感染症の流行状況 第29週"), market-research reports
+  // ("外用感染症用軟膏の世界市場"), and vaccine-research-center announcements —
+  // none of which indicate an actual outbreak happening right now. Health is
+  // now scored differently from the other three categories: it requires a
+  // named disease term AND a separate escalation term in the SAME headline
+  // (see scoreHealthCategory below) rather than a single flat keyword list.
+  Health: {
+    diseases: ['インフルエンザ', '鳥インフルエンザ', 'ノロウイルス', '麻疹', 'マダニ感染症', '新型コロナ'],
+    escalation: ['急増', '拡大', '流行入り', 'クラスター', 'アウトブレイク', '集団感染', '警戒レベル', '警報']
+  },
   Infrastructure: ['停電', '断水', '運休', 'システム障害', '通信障害', '大規模障害', '欠航'],
   PublicSafety: ['テロ', '立てこもり', '大規模火災', '殺傷', '爆発', '銃撃']
 };
@@ -230,12 +237,41 @@ function dedupeByTitleStem(items) {
   return out;
 }
 
-// Count how many articles mention at least one term from a category's list
+// FIX (miscategorization): ported from JAPAN NOW. A story about a foreign
+// country's own security/incident affairs (e.g. a North Korea/South Korea
+// DMZ landmine story) can still match a generic keyword like '爆発' and leak
+// into Health/Infrastructure/PublicSafety — categories meant to represent
+// risk to daily life IN Japan, not overseas events. Security is
+// deliberately EXEMPT from this filter: North Korea/China regional
+// activity is exactly what that category is meant to capture, even when
+// the event itself happens outside Japan.
+const FOREIGN_ONLY_INDICATOR_TERMS = ['北朝鮮', '韓国', 'ロシア', 'ウクライナ', 'イスラエル', 'ガザ', 'シリア', 'レバノン', 'イラン', '中国軍', '台湾'];
+const JAPAN_RELEVANCE_TERMS = ['日本', '日系', '邦人', '在日', '対日', '日米', '日露', '日中', '日韓', '日ロ', '来日', '訪日', '国内', '県', '市'];
+function isForeignOnlyStory(title) {
+  const t = String(title || '');
+  const hasForeignSignal = FOREIGN_ONLY_INDICATOR_TERMS.some(term => t.includes(term));
+  if (!hasForeignSignal) return false;
+  const hasJapanRelevance = JAPAN_RELEVANCE_TERMS.some(term => t.includes(term));
+  return !hasJapanRelevance;
+}
+
+function scoreHealthCategory(articles) {
+  const { diseases, escalation } = CATEGORY_KEYWORDS.Health;
+  const hits = articles.filter(a =>
+    !isForeignOnlyStory(a.title) &&
+    diseases.some(d => a.title.includes(d)) &&
+    escalation.some(e => a.title.includes(e))
+  );
+  return { count: hits.length, hits: hits.slice(0, 6) };
+}
+
+
 // (article-level presence, not raw term frequency — mirrors ORACLE's
 // intent of "how much is this being reported on" rather than double-
 // counting a single article that repeats a keyword many times).
-function scoreNewsCategory(articles, terms) {
-  const hits = articles.filter(a => terms.some(t => a.title.includes(t)));
+function scoreNewsCategory(articles, terms, { domesticOnly = false } = {}) {
+  const pool = domesticOnly ? articles.filter(a => !isForeignOnlyStory(a.title)) : articles;
+  const hits = pool.filter(a => terms.some(t => a.title.includes(t)));
   return { count: hits.length, hits: hits.slice(0, 6) };
 }
 
@@ -376,14 +412,30 @@ function disasterScore({ specialCount, warningCount, advisoryCount, quakeSignifi
   // Structural score, not keyword-derived: each 特別警報(emergency) contributes
   // heavily, each 警報 moderately, each 注意報 lightly, each significant
   // earthquake (震度5弱+) heavily. Capped at 100.
-  const raw = specialCount * 30 + warningCount * 8 + advisoryCount * 2 + quakeSignificant * 25;
+  //
+  // FIX (calibration): 注意報(advisory, the LOWEST severity tier — things
+  // like 雷注意報/濃霧注意報) is issued somewhere in Japan on almost any
+  // summer afternoon; a perfectly ordinary day can easily have 20-25 of
+  // them active nationwide at once. At the original weight of 2 points each,
+  // that alone produced a Disaster score of ~50 (already "WATCH/HIGH"
+  // territory) with zero actual 警報 or 特別警報 anywhere. Advisory weight is
+  // dropped to 0.4 so a routine advisory-only day scores low, while an
+  // actual 警報 (still worth 8) or 特別警報 (30) still dominates the score
+  // the way it should.
+  const raw = specialCount * 30 + warningCount * 8 + advisoryCount * 0.4 + quakeSignificant * 25;
   return Math.min(100, raw);
 }
 
 function newsCategoryScore(count) {
-  // Simple saturating curve: a handful of matching articles already signals
-  // real coverage; beyond ~8 articles the marginal signal flattens out.
-  return Math.min(100, Math.round((count / 8) * 100));
+  // FIX (calibration): denominator raised from 8 to 14. A single real event
+  // (e.g. one city's water outage) routinely generates 4-6 differently-
+  // worded headlines across outlets that survive dedupeByTitleStem's
+  // 24-char-prefix matching — meaning one localized incident could already
+  // saturate this to 100, the same score a genuinely nationwide, multi-
+  // event day would get. This is a documented, imperfect mitigation (real
+  // per-event dedup would need entity extraction this project doesn't have)
+  // rather than a full fix — see README.
+  return Math.min(100, Math.round((count / 14) * 100));
 }
 
 function stateFromScore(s) { if (s >= 70) return 'CRITICAL'; if (s >= 50) return 'HIGH'; if (s >= 30) return 'WATCH'; return 'STABLE'; }
@@ -419,19 +471,21 @@ async function buildPayload() {
           advisoryCount: warningsData.advisoryCount, quakeSignificant: significantQuakeCount(quakes)
         }),
         Security: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.Security).count),
-        Health: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.Health).count),
-        Infrastructure: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.Infrastructure).count),
-        PublicSafety: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.PublicSafety).count)
+        Health: newsCategoryScore(scoreHealthCategory(news).count),
+        Infrastructure: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.Infrastructure, { domesticOnly: true }).count),
+        PublicSafety: newsCategoryScore(scoreNewsCategory(news, CATEGORY_KEYWORDS.PublicSafety, { domesticOnly: true }).count)
       };
 
   const finalScore = Math.round(Object.entries(WEIGHTS).reduce((sum, [k, w]) => sum + (driverScores[k] || 0) * w, 0));
   const state = stateFromScore(finalScore);
   const topDriver = Object.entries(driverScores).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Disaster';
 
-  const categoryEvidence = {};
-  for (const [cat, terms] of Object.entries(CATEGORY_KEYWORDS)) {
-    categoryEvidence[cat] = isBaseline ? [] : scoreNewsCategory(news, terms).hits.map(a => ({ title: a.title, source: a.source, url: a.url }));
-  }
+  const categoryEvidence = {
+    Security: isBaseline ? [] : scoreNewsCategory(news, CATEGORY_KEYWORDS.Security).hits.map(a => ({ title: a.title, source: a.source, url: a.url })),
+    Health: isBaseline ? [] : scoreHealthCategory(news).hits.map(a => ({ title: a.title, source: a.source, url: a.url })),
+    Infrastructure: isBaseline ? [] : scoreNewsCategory(news, CATEGORY_KEYWORDS.Infrastructure, { domesticOnly: true }).hits.map(a => ({ title: a.title, source: a.source, url: a.url })),
+    PublicSafety: isBaseline ? [] : scoreNewsCategory(news, CATEGORY_KEYWORDS.PublicSafety, { domesticOnly: true }).hits.map(a => ({ title: a.title, source: a.source, url: a.url }))
+  };
 
   return {
     ok: true,
@@ -475,4 +529,4 @@ function fallbackPayload(error) {
   };
 }
 
-export { dedupeByTitleStem, titleStem, extractActiveWarnings, groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount, disasterScore, newsCategoryScore, stateFromScore, parseRss, clean, decodeXml };
+export { dedupeByTitleStem, titleStem, extractActiveWarnings, groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount, disasterScore, newsCategoryScore, stateFromScore, parseRss, clean, decodeXml, isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory };
