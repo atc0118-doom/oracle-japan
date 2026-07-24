@@ -4,7 +4,8 @@ import {
   disasterScore, newsCategoryScore, stateFromScore,
   dedupeByTitleStem, titleStem, extractActiveWarnings,
   groupWarningsByPrefecture, isRoutineBulletin, significantQuakeCount,
-  isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory, parseRss
+  isForeignOnlyStory, scoreHealthCategory, scoreNewsCategory, parseRss,
+  scoreSecurityCategory
 } from '../api/risk-japan.js';
 
 test('disasterScore weights 特別警報 much higher than 注意報', () => {
@@ -111,6 +112,21 @@ test('isForeignOnlyStory flags a Korea-only story with no Japan relevance', () =
 
 test('isForeignOnlyStory does not flag a story explicitly about Japan-China relations', () => {
   assert.equal(isForeignOnlyStory('尖閣諸島沖の日本領海に中国海警局の船が侵入'), false);
+});
+
+test('scoreSecurityCategory rejects actor-only or action-only headlines with no real Japan-security link', () => {
+  const articles = [
+    { title: '北朝鮮・平壌で「犬肉料理」のコンテスト開催 伝統文化、味や見栄え競う', url: 'https://a/1', source: 'x' },
+    { title: 'イラク国境付近での攻撃を受け、ミサイルやドローンがクウェートを標的に', url: 'https://a/2', source: 'x' },
+    { title: '尖閣諸島・魚釣島沖の領海に中国海警局の船4隻が相次いで侵入', url: 'https://a/3', source: 'x' },
+    { title: '北朝鮮が非武装地帯に埋設した大量の地雷、豪雨で一部流出か', url: 'https://a/4', source: 'x' }
+  ];
+  const { count, hits } = scoreSecurityCategory(articles);
+  assert.equal(count, 2);
+  assert.deepEqual(hits.map(h => h.title), [
+    '尖閣諸島・魚釣島沖の領海に中国海警局の船4隻が相次いで侵入',
+    '北朝鮮が非武装地帯に埋設した大量の地雷、豪雨で一部流出か'
+  ]);
 });
 
 test('scoreHealthCategory rejects routine surveillance/market-report headlines with no disease+escalation pair', () => {
