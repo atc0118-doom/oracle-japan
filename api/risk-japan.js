@@ -210,6 +210,15 @@ function parseRss(xml, fallbackSource = 'RSS') {
       .replace(/\s+[-|｜]\s+[^-|｜]+$/, '')
       .replace(/\s*[|｜]\s*[^-|｜]+$/, '')
       .replace(/[(（][^()（）]{0,20}(NNN|JNN|FNN|ANN|TXN)[^()（）]{0,20}[)）]\s*$/, '')
+      // FIX (false Japan-relevance signal): a trailing outlet suffix like
+      //「（中央日報日本語版）」 just means "this is the Japanese-language edition
+      // of a Korean outlet" — it's metadata about the publication, not
+      // content about Japan. Left attached, its "日本" substring fooled
+      // isForeignOnlyStory into treating a pure Korea/DMZ story as
+      // Japan-relevant (it appeared in the 治安・事件事故 evidence list despite
+      // having nothing to do with Japan). Stripped the same way the
+      // NNN/JNN broadcaster-code suffix above is.
+      .replace(/[(（][^()（）]{0,20}日本語版[^()（）]{0,20}[)）]\s*$/, '')
     ).slice(0, 140);
     const url = decodeXml(block.match(/<link>([\s\S]*?)<\/link>/)?.[1] || '');
     const source = decodeXml(block.match(/<source[^>]*>([\s\S]*?)<\/source>/)?.[1] || fallbackSource);
