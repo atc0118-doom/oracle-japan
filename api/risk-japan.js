@@ -72,10 +72,15 @@ const CATEGORY_KEYWORDS = {
   // 'ロシア軍' are too broad for that and now additionally require a
   // Japan-relevance term (reusing the same JAPAN_RELEVANCE_TERMS list used
   // elsewhere) before they count.
+  // FIX (over-triggering, round 5): '地雷' let through a North Korea/South
+  // Korea DMZ landmine-washout story that has no actual bearing on Japan —
+  // unlike a missile launch or a naval incursion, a landmine hazard
+  // confined to the inter-Korean border doesn't project any threat toward
+  // Japan the way this category's other action terms do. Removed.
   Security: {
     flashpoints: ['尖閣', '台湾', '北朝鮮'],
     broadActors: ['中国', 'ロシア軍'],
-    actions: ['ミサイル', '弾道', '領海侵入', '領空侵犯', 'スクランブル', '侵入', '地雷', '軍艦', '実戦訓練', '有事', '演習']
+    actions: ['ミサイル', '弾道', '領海侵入', '領空侵犯', 'スクランブル', '侵入', '軍艦', '実戦訓練', '有事', '演習']
   },
   // FIX (over-triggering, round 2): bare '感染症' matched routine weekly
   // surveillance bulletins ("感染症の流行状況 第29週"), market-research reports
