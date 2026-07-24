@@ -99,8 +99,10 @@ function renderDrivers(drivers, weights) {
   }
 }
 
-async function renderWarningMap(entriesByPrefecture) {
-  const host = document.getElementById('warningMap');
+let latestWarningsByPrefecture = {};
+
+async function renderWarningMap(entriesByPrefecture, containerId = 'warningMap') {
+  const host = document.getElementById(containerId);
   if (!host) return;
   if (typeof d3 === 'undefined' || typeof topojson === 'undefined') {
     host.innerHTML = '<p class="no-warning">地図ライブラリを読み込めませんでした。</p>';
@@ -142,16 +144,53 @@ async function renderWarningMap(entriesByPrefecture) {
   }
 }
 
+// Map-expand modal — same pattern as ORACLE (world risk intelligence)'s
+// own map: build the modal lazily on first tap, re-render the map into the
+// modal's (larger) container so its width reflects the expanded size, and
+// close on either the × button or a click on the dim backdrop.
+function ensureMapExpandModal() {
+  let modal = document.getElementById('mapExpandModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'mapExpandModal';
+  modal.className = 'map-expand-modal';
+  modal.innerHTML = `
+    <div class="map-expand-card" role="dialog" aria-modal="true" aria-label="拡大した都道府県警報地図">
+      <button class="map-expand-close" type="button" aria-label="閉じる">×</button>
+      <div id="warningMapExpanded" class="warning-map warning-map-expanded"></div>
+      <p class="map-legend">
+        <span><i class="sw sw-none"></i>警報なし</span>
+        <span><i class="sw sw-advisory"></i>注意報</span>
+        <span><i class="sw sw-warning"></i>警報</span>
+        <span><i class="sw sw-special"></i>特別警報</span>
+      </p>
+    </div>`;
+  document.body.appendChild(modal);
+  const close = () => modal.classList.remove('open');
+  modal.querySelector('.map-expand-close').addEventListener('click', close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  return modal;
+}
+
+function openMapExpanded() {
+  const modal = ensureMapExpandModal();
+  modal.classList.add('open');
+  // Render after the modal is visible so clientWidth reflects its real (larger) size.
+  requestAnimationFrame(() => renderWarningMap(latestWarningsByPrefecture, 'warningMapExpanded'));
+}
+
 function renderWarnings(detail) {
   const list = document.getElementById('warningList');
   list.innerHTML = '';
   if (!detail) {
     list.innerHTML = '<p class="no-warning">気象庁データを取得できませんでした。</p>';
+    latestWarningsByPrefecture = {};
     renderWarningMap({});
     return;
   }
   const entries = detail.activeWarningsByPrefecture || [];
   const byName = Object.fromEntries(entries.map(e => [e.prefecture, e]));
+  latestWarningsByPrefecture = byName;
   renderWarningMap(byName);
 
   if (!entries.length) {
@@ -195,6 +234,8 @@ function renderEvidence(evidence) {
     grid.appendChild(card);
   }
 }
+
+document.getElementById('mapExpandHint')?.addEventListener('click', openMapExpanded);
 
 load();
 setInterval(load, 10 * 60 * 1000);

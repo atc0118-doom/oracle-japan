@@ -106,6 +106,17 @@ body::before{
 .warning-map svg{ display:block; }
 .warning-map path.pref{ transition:opacity .15s; cursor:default; }
 .warning-map path.pref:hover{ opacity:0.8; stroke:rgba(255,255,255,0.6); stroke-width:1.2; }
+
+/* Map-expand modal, copied directly from ORACLE (world risk intelligence). */
+.map-expand-hint{ margin:10px 0 0; color:#6b7480; font-size:10px; letter-spacing:.08em; text-align:center; cursor:pointer; }
+.map-expand-hint:active{ color:var(--yellow); }
+.map-expand-modal{ display:none; position:fixed; inset:0; z-index:60; background:rgba(4,6,8,.86); padding:20px; overflow-y:auto; }
+.map-expand-modal.open{ display:flex; align-items:center; justify-content:center; }
+.map-expand-card{ position:relative; width:100%; max-width:640px; background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:24px 20px; }
+.map-expand-close{ position:absolute; top:12px; right:14px; background:transparent; border:0; color:#aab1bb; font-size:26px; line-height:1; cursor:pointer; padding:4px 8px; }
+.map-expand-close:active{ color:var(--yellow); }
+.warning-map-expanded{ max-width:100%; cursor:default; }
+
 .map-legend{ display:flex; justify-content:center; gap:16px; flex-wrap:wrap; font-size:11px; color:var(--muted); margin:6px 0 20px; }
 .map-legend span{ display:inline-flex; align-items:center; gap:5px; }
 .sw{ width:10px; height:10px; border-radius:3px; display:inline-block; }
