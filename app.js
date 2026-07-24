@@ -7,27 +7,34 @@ const DRIVER_LABELS = {
 };
 const EVIDENCE_ORDER = ['Security', 'Health', 'Infrastructure', 'PublicSafety'];
 
-// Schematic "grid cartogram" positions — same technique used by Japanese
-// election-night graphics: each prefecture gets one grid cell, positioned
-// to roughly match real geography (north→south, west→east) rather than
-// true coastline shapes. This avoids needing precise boundary path data
-// (not available in this environment) while still being instantly
-// recognizable as "a map of Japan". Okinawa is placed as a detached inset,
-// same convention official Japanese maps use.
-const PREFECTURE_GRID = {
-  '北海道': [9, 1],
-  '青森県': [9, 2], '岩手県': [10, 3], '秋田県': [8, 3], '宮城県': [10, 4], '山形県': [9, 4], '福島県': [10, 5],
-  '新潟県': [9, 5], '富山県': [8, 6], '石川県': [7, 6], '福井県': [7, 7], '長野県': [9, 6], '山梨県': [9, 7],
-  '群馬県': [10, 6], '栃木県': [11, 6], '茨城県': [12, 6], '埼玉県': [11, 7], '千葉県': [12, 7],
-  '東京都': [11, 8], '神奈川県': [11, 9], '静岡県': [10, 8], '岐阜県': [8, 7], '愛知県': [9, 8], '三重県': [8, 8],
-  '滋賀県': [7, 8], '京都府': [6, 8], '大阪府': [6, 9], '兵庫県': [5, 8], '奈良県': [7, 9], '和歌山県': [6, 10],
-  '鳥取県': [4, 8], '島根県': [3, 8], '岡山県': [4, 9], '広島県': [3, 9], '山口県': [2, 9],
-  '徳島県': [5, 10], '香川県': [4, 10], '愛媛県': [3, 10], '高知県': [4, 11],
-  '福岡県': [1, 10], '佐賀県': [1, 11], '長崎県': [0, 11], '熊本県': [1, 12], '大分県': [2, 10],
-  '宮崎県': [2, 12], '鹿児島県': [1, 13],
-  '沖縄県': [0, 15]
+// Real prefecture boundary data (same technique ORACLE uses for its world
+// map: d3 + topojson-client pulling a public TopoJSON from a CDN, see
+// index.html script tags), not a hand-placed grid. Source: jpn-atlas,
+// derived from the Geospatial Information Authority of Japan's Global Map
+// Japan (2016). Geometry is pre-projected (d3.geoAzimuthalEqualArea, fit to
+// an 850×680 viewport) and simplified, so no projection is applied here —
+// only d3.geoPath() with its default identity behavior, same as the
+// library's own usage example.
+const JAPAN_ATLAS_URL = 'https://unpkg.com/jpn-atlas@1.0.2/japan/japan.json';
+// Standard JIS X 0401 prefecture codes — the "prefectures" geometry
+// collection in the atlas uses these 2-digit codes as feature ids.
+const PREFECTURE_CODE_TO_NAME = {
+  '01': '北海道', '02': '青森県', '03': '岩手県', '04': '宮城県', '05': '秋田県', '06': '山形県', '07': '福島県',
+  '08': '茨城県', '09': '栃木県', '10': '群馬県', '11': '埼玉県', '12': '千葉県', '13': '東京都', '14': '神奈川県',
+  '15': '新潟県', '16': '富山県', '17': '石川県', '18': '福井県', '19': '山梨県', '20': '長野県', '21': '岐阜県',
+  '22': '静岡県', '23': '愛知県', '24': '三重県', '25': '滋賀県', '26': '京都府', '27': '大阪府', '28': '兵庫県',
+  '29': '奈良県', '30': '和歌山県', '31': '鳥取県', '32': '島根県', '33': '岡山県', '34': '広島県', '35': '山口県',
+  '36': '徳島県', '37': '香川県', '38': '愛媛県', '39': '高知県', '40': '福岡県', '41': '佐賀県', '42': '長崎県',
+  '43': '熊本県', '44': '大分県', '45': '宮崎県', '46': '鹿児島県', '47': '沖縄県'
 };
-const TILE = 30, GAP = 3;
+
+let japanTopoCache = null;
+async function loadJapanTopology() {
+  if (japanTopoCache) return japanTopoCache;
+  const res = await fetch(JAPAN_ATLAS_URL);
+  japanTopoCache = await res.json();
+  return japanTopoCache;
+}
 
 function severityFromWarnings(names) {
   if (!names || !names.length) return 0;
@@ -103,23 +110,47 @@ function renderDrivers(drivers, weights) {
   }
 }
 
-function renderWarningMap(entriesByPrefecture) {
+async function renderWarningMap(entriesByPrefecture) {
   const host = document.getElementById('warningMap');
   if (!host) return;
-  const cols = Math.max(...Object.values(PREFECTURE_GRID).map(p => p[0])) + 1;
-  const rows = Math.max(...Object.values(PREFECTURE_GRID).map(p => p[1])) + 1;
-  const w = cols * (TILE + GAP), h = rows * (TILE + GAP);
-  const sevColor = ['var(--line)', 'var(--lv2)', 'var(--lv4)', 'var(--lv5)'];
-  let svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="都道府県別の気象警報レベル">`;
-  for (const [name, [col, row]] of Object.entries(PREFECTURE_GRID)) {
-    const entry = entriesByPrefecture[name];
-    const sev = severityFromWarnings(entry?.warnings);
-    const x = col * (TILE + GAP), y = row * (TILE + GAP);
-    const title = entry ? `${name}: ${entry.warnings.join(' / ')}` : `${name}: 活動中の警報・注意報なし`;
-    svg += `<g><title>${title}</title><rect x="${x}" y="${y}" width="${TILE}" height="${TILE}" rx="5" fill="${sevColor[sev]}" stroke="rgba(255,255,255,0.08)"/></g>`;
+  if (typeof d3 === 'undefined' || typeof topojson === 'undefined') {
+    host.innerHTML = '<p class="no-warning">地図ライブラリを読み込めませんでした。</p>';
+    return;
   }
-  svg += `</svg>`;
-  host.innerHTML = svg;
+  try {
+    const japan = await loadJapanTopology();
+    const features = topojson.feature(japan, japan.objects.prefectures).features;
+    const sevColor = ['var(--line)', 'var(--lv2)', 'var(--lv4)', 'var(--lv5)'];
+    const path = d3.geoPath(); // data is pre-projected to an 850x680 viewport
+
+    host.innerHTML = '';
+    const svg = d3.select(host).append('svg')
+      .attr('viewBox', '0 0 850 680')
+      .attr('width', '100%')
+      .attr('role', 'img')
+      .attr('aria-label', '都道府県別の気象警報レベル');
+
+    svg.selectAll('path.pref')
+      .data(features)
+      .join('path')
+      .attr('class', 'pref')
+      .attr('d', path)
+      .attr('fill', d => {
+        const name = PREFECTURE_CODE_TO_NAME[d.id] || PREFECTURE_CODE_TO_NAME[String(d.id).padStart(2, '0')];
+        const sev = severityFromWarnings(entriesByPrefecture[name]?.warnings);
+        return sevColor[sev];
+      })
+      .attr('stroke', 'rgba(255,255,255,0.15)')
+      .attr('stroke-width', 0.6)
+      .append('title')
+      .text(d => {
+        const name = PREFECTURE_CODE_TO_NAME[d.id] || PREFECTURE_CODE_TO_NAME[String(d.id).padStart(2, '0')] || '';
+        const entry = entriesByPrefecture[name];
+        return entry ? `${name}: ${entry.warnings.join(' / ')}` : `${name}: 活動中の警報・注意報なし`;
+      });
+  } catch (err) {
+    host.innerHTML = '<p class="no-warning">地図データを取得できませんでした。</p>';
+  }
 }
 
 function renderWarnings(detail) {
